@@ -1,7 +1,7 @@
 C  Republican River Pre-Processor (RRPP)
 C  Republican River Settlement Model Version 12
 C  Willem A. Schreuder
-C  Last modified: May 21, 2003
+C  Last modified: Apr 26, 2012
 C
 C  Program to generate recharge and well pumping input files for MODFLOW
 C  
@@ -38,6 +38,14 @@ C
 C  For impact runs, i.e. runs where pumping or canals are switched off, that
 C  portion of the irrigated lands that relates to the source of water is switched
 C  off in the recharge calculation, as is pumping when applicable.
+C
+C  Modified 9/18/2007 (WAS)
+C  Changed addition of ACO so that if neither GW nor SW is applied (NOPUMP and MOUND),
+C  the commingled acres are not counted.  Before we tacitly assumed that these options 
+C  are mutually exclusive.
+C  Correction 4/26/2012 (WAS)
+C  Sam Perkins pointed out that the ACO logic was reversed, which
+C  effects the mound calculations
       PROGRAM RRPP
       IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       INCLUDE 'rrpp.ins'
@@ -754,7 +762,14 @@ C  Read surface water irrigated area
 C  Read comingled irrigated area
         do L=1,3
           call READFILE(WORK,STATE(L),CYEAR,'aco',.FALSE.)
-          call ADD(AREA,1D0,WORK)
+C    With no pumping, add only outside the mound
+C    This only makes a difference if no pumping and no mound is simulated
+          if (.not.GW(L)) then
+            call CONDADD(AREA,1D0,WORK,MOUND)
+C    With pumping, add everywhere regardless of mound
+          else
+            call ADD(AREA,1D0,WORK)
+          endif
         enddo
       endif
 
