@@ -55,12 +55,15 @@ C  effects the mound calculations
       DIMENSION XSTN(MAXSTN),YSTN(MAXSTN),PSTN(MAXSTN,MINYR:MAXYR)
       DIMENSION FACTM(0:12),BGT(0:MAXBGT)
       DIMENSION XFACTOR(NCOL,NROW)
+      !add by Michael Ou
+      DIMENSION PMULT(NCOL,NROW) !multipliers for pumping
+      !add by Michael Ou End
       LOGICAL       GW(3),EOL,APPEND
       INTEGER       NDM(12)
       CHARACTER*4   CYEAR
       CHARACTER*7   ROOT,NAME
       CHARACTER*16  CMD,CBGT(MAXBGT),CSOIL(MAXSOIL),ACCESS
-      CHARACTER*256 FILE,RCHFIL(4),WELFIL
+      CHARACTER*256 FILE,RCHFIL(4),WELFIL,SLINE
       DATA          STATE /'co','ks','ne'/
       DATA          NDM /31,28,31,30,31,30,31,31,30,31,30,31/
 
@@ -71,6 +74,10 @@ C  Generate cell coordinates
       do i=1,NROW
         Y(i) = (NROW-i+0.5)*DY+Y0
       enddo
+      
+      !add by Michael Ou
+      PMULT = 1.0D0
+      !add by Michael Ou End
 
 C  Set defaults
       BIN      = .FALSE.
@@ -214,6 +221,12 @@ C
         L = INSTATE(IOS)
         if (IOS.ne.0) call ERROR('Invalid state '//LINE)
         GW(L) = .FALSE.
+        
+        
+      !add by Michael Ou
+      elseif (CMD.eq.'MULTIPLY') then
+        call MULT(PMULT)
+      !add by Michael Ou End
 C
 C  Read mound adjustment
 C    This switch inhibits surface water diversions and canal leakage in
@@ -358,7 +371,7 @@ C       Accumulate recharge for steady state years
 C       The SS switch inhibits irrigation for this calculation
         do IYR=IYRSS0,IYRSS1
           call EVALCURVE(CURV,.TRUE.,IYR,GW,MOUND,TRN,ISOIL,NSOIL,
-     |      FRCH,NPTS,XSTN,YSTN,NSTN,PSTN,IDR)
+     |      FRCH,NPTS,XSTN,YSTN,NSTN,PSTN,IDR,PMULT)
           do I=1,NROW
             do J=1,NCOL
               RCH(J,I) = RCH(J,I) + CURV(J,I)
@@ -375,7 +388,7 @@ C       Average recharge
 C       Save recharge for annual average period
         NSEC = 365.25*24*60*60
         call PERIOD(RCH,GW,MOUND,'Steady ','steady','steady',
-     |              -1,IYRXF,XFACTOR,NSEC,SSPPT)
+     |              -1,IYRXF,XFACTOR,NSEC,SSPPT,PMULT)
       endif
 
 C
@@ -384,7 +397,7 @@ C
       do IYR=IYRTR0,IYRTR1
 C       Evaluate recharge from curve for this year
         call EVALCURVE(CURV,.FALSE.,IYR,GW,MOUND,TRN,ISOIL,NSOIL,
-     |    FRCH,NPTS,XSTN,YSTN,NSTN,PSTN,IDR)
+     |    FRCH,NPTS,XSTN,YSTN,NSTN,PSTN,IDR,PMULT)
         WRITE(CYEAR,'(I4)') IYR
         call BUDGET(CYEAR,CURV,IBGT,BGT,NBGT,NROW,NCOL)
 C       Calculate monthly recharge from annual curve and monthly stresses
@@ -398,7 +411,7 @@ C       Calculate monthly recharge from annual curve and monthly stresses
           WRITE(ROOT,'(F7.2)') IYR+MO/100D0
           WRITE(NAME,'(I2,1H/,I4)') MO,IYR
           call PERIOD(CURV,GW,MOUND,NAME,ROOT,CYEAR,
-     |                IYR,IYRXF,XFACTOR,NSEC,FACTM(MO))
+     |                IYR,IYRXF,XFACTOR,NSEC,FACTM(MO),PMULT)
         enddo
       enddo
       END
@@ -709,7 +722,7 @@ C----------------------------------------------------------------------C
 C-------------  Calculate recharge from curve for year  ---------------C
 C----------------------------------------------------------------------C
       SUBROUTINE EVALCURVE(CURV,SS,IYR,GW,MOUND,TRN,ISOIL,NSOIL,
-     |  FRCH,NPTS,XSTN,YSTN,NSTN,PSTN,IDR)
+     |  FRCH,NPTS,XSTN,YSTN,NSTN,PSTN,IDR,PMULT)  !add one argument PMULT
 C  This subroutine calculates annual precipitation recharge (inches/year) in CURV
 C  Recharge is calculated based on supplied water.
 C  To calculate irrigated area, the area of irrigation for each state on 
@@ -725,7 +738,7 @@ C  Recharge rate is weighted by area fraction of irrigated and non-irrigated in 
       INCLUDE 'rrpp.ins'
       PARAMETER (CELL=640)
       DIMENSION CURV(NCOL,NROW),RPP(NCOL,NROW),WORK(NCOL,NROW)
-      DIMENSION AREA(NCOL,NROW),FIRR(NCOL,NROW)
+      DIMENSION AREA(NCOL,NROW),FIRR(NCOL,NROW),PMULT(NCOL,NROW)
       DIMENSION FRCH(MAXRCH,2,0:MAXSOIL),MOUND(NCOL,NROW)
       DIMENSION TRN(NCOL,NROW),ISOIL(NCOL,NROW)
       DIMENSION XSTN(MAXSTN),YSTN(MAXSTN),PSTN(MAXSTN,MINYR:MAXYR)
@@ -751,7 +764,11 @@ C  Read groundwater irrigated area
         do L=1,3
           if (GW(L)) then
             call READFILE(WORK,STATE(L),CYEAR,'agw',.FALSE.)
-            call ADD(AREA,1D0,WORK)
+            if (L==3) then !for NE
+              AREA=AREA+PMULT*WORK
+            else
+              call ADD(AREA,1D0,WORK)
+            endif
           endif
         enddo
 C  Read surface water irrigated area
@@ -768,7 +785,17 @@ C    This only makes a difference if no pumping and no mound is simulated
             call CONDADD(AREA,1D0,WORK,MOUND)
 C    With pumping, add everywhere regardless of mound
           else
-            call ADD(AREA,1D0,WORK)
+            if (L==3) then
+            
+              !MOUNT AREA
+              where(MOUND==0) 
+                AREA=AREA+WORK 
+              elsewhere
+                AREA=AREA+PMULT*WORK 
+              end where
+            else              
+              call ADD(AREA,1D0,WORK)
+            endif 
           endif
         enddo
       endif
@@ -779,7 +806,7 @@ C  Calculate recharge from curves
           if (IBOUND(J,I).gt.0) then
             L = ISOIL(J,I)
 C           Compute fraction of cell that is irrigated
-            FIRR(J,I) = MIN(1,AREA(J,I)/CELL)
+            FIRR(J,I) = MIN(1.,AREA(J,I)/CELL)
 C           Calculate precipitation in this cell (inches)
             RPP(J,I) = EVALKRIGE(AINV,X0,Y0,XSTN,YSTN,PSTN(1,IYR),
      |                           X(J),Y(I),NSTN,IDR)
@@ -803,7 +830,7 @@ C----------------------------------------------------------------------C
 C--------  Calculate recharge and pumping for stress period  ----------C
 C----------------------------------------------------------------------C
       SUBROUTINE PERIOD(CURV,GW,MOUND,NAME,ROOT,CYEAR,
-     |                  IYR,IYRXF,XFACTOR,NSEC,PPTADJ)
+     |                  IYR,IYRXF,XFACTOR,NSEC,PPTADJ,PMULT)
 C  This subroutine stores the pumping and recharge to the MODFLOW files.
 C  This subroutine is called once for every stress period (months).
 C  Pumping is read from the ".mi" cell by cell files and ".pmp" files
@@ -821,7 +848,7 @@ C  Recharge is then saved in U2DREL format with the elements of the array in
 C  inches and a constant multiplier to make the units ft/sec. 
       IMPLICIT DOUBLE PRECISION (A-H,O-Z)
       INCLUDE       'rrpp.ins'
-      DIMENSION     PUMP(NCOL,NROW),RECH(NCOL,NROW,4)
+      DIMENSION     PUMP(NCOL,NROW),RECH(NCOL,NROW,4),PMULT(NCOL,NROW)
       DIMENSION     CURV(NCOL,NROW),WORK(NCOL,NROW),MOUND(NCOL,NROW)
       DIMENSION     XFACTOR(NCOL,NROW)
       LOGICAL       GW(3)
@@ -845,7 +872,7 @@ C  Recharge from curve (convert inches to AF)
       call ADD(RECH(1,1,1),CIN2AF*PPTADJ,CURV)
 
 C  Read arrays by state
-      do L=1,3
+      do L=3,1,-1
 C       Well pumping
 C         Adjust for impact runs
         if (GW(L)) then
@@ -855,12 +882,20 @@ C         M&I (annuals)
 C         Irrigation Wells
           call READFILE(WORK,STATE(L),ROOT,'pmp',.FALSE.)
           call ADD(PUMP,1D0,WORK)
+          !Add by Michael Ou
+          if (L==3) PUMP=PUMP*PMULT
         endif
+        
+
 C       Groundwater Irrigation Returns
 C         None without pumping
         if (GW(L)) then
           call READFILE(WORK,STATE(L),ROOT,'rcg',.FALSE.)
-          call ADD(RECH(1,1,2),1D0,WORK)
+          if (L==3) then  !add by Michael
+            RECH(:,:,2)=RECH(:,:,2)+PMULT*WORK
+          else
+            call ADD(RECH(1,1,2),1D0,WORK)
+          end if
         endif
 C       Surface Water Irrigation Returns
 C         Adjust for mound
@@ -991,3 +1026,29 @@ C----------------------------------------------------------------------C
         enddo
       enddo
       END
+
+C----------------------------------------------------------------------C
+C--------------------------  Multiply by Michael Ou --------------------------C
+C----------------------------------------------------------------------C      
+      subroutine MULT(PMULT)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'rrpp.ins'
+      DIMENSION     PMULT(NCOL,NROW),IZON(NCOL,NROW)
+      character*256 HEAD, FZON
+      FZON = CHARIN(LINE,IPOS,IPOS,IOS)
+      if (IOS.ne.0) call ERROR('Error reading ZONE file name '//LINE)
+      open(unit=99,file=FZON,STATUS='OLD',IOSTAT=IOS)
+      if (IOS.ne.0) call ERROR('Error reading ZONE file name '//LINE)
+      read(99,"(A)") HEAD
+      do I=1,NROW
+        read(99,*) IZON(:,I)
+      end do
+      IIZON = int(REALIN(LINE,IPOS,IPOS,IOS))
+      PMUL= REALIN(LINE,IPOS,IPOS,IOS)
+      if (count(IZON==IIZON)==0) then 
+        call ERROR('Could not find multiplier zone number: '//LINE)
+      else
+        where (IZON==IIZON) PMULT = PMUL
+      end if
+      close(99)
+      end subroutine
