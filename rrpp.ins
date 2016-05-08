@@ -1,0 +1,32 @@
+C  Dimensions of domain
+      PARAMETER (NROW=165,NCOL=326,MAXWEL=14000)
+      PARAMETER (X0=266023,Y0=14092806,DX=5280,DY=5280)
+C  First and last year hard limits
+      PARAMETER (MINYR=1910,MAXYR=2150)
+C  Dimensions for permitted parameters 
+      PARAMETER (MAXDR=3,MAXSTN=128,MAXFUN=64,MAXRCH=8192)
+      PARAMETER (MAXSOIL=9,MAXBGT=9,MAXEXT=3)
+      PARAMETER (MAXDIM=MAXSTN+2*MAXDR+1)
+ 
+C  Convert inches over the cell to acre feet
+      PARAMETER (CIN2AF = 640D0/12,MAXNRG = 16)
+
+C  Output files
+      PARAMETER (LUOUT=20)
+
+C  State integers
+      INTEGER CO,KS,NE
+      PARAMETER (CO=1,KS=2,NE=3)
+
+C  Commonly used functions
+      EXTERNAL      CHARIN
+      CHARACTER*256 CHARIN
+
+C  Pass variables in common block
+      LOGICAL        BIN
+      CHARACTER*16   STATE,FDIR,FEXT
+      CHARACTER*8192 LINE
+      COMMON /GRID/ X(NCOL),Y(NROW),IBOUND(NCOL,NROW)
+      COMMON /KRIG/ AMAT(MAXDIM,MAXDIM),AINV(MAXDIM,MAXDIM)
+      COMMON /MISC/ MWEL,NRCH,BIN,IPOS,LINE,STATE(3)
+      COMMON /OPPT/ NOUT,FDIR,FEXT(MAXEXT)
